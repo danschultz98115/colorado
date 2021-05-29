@@ -1,0 +1,521 @@
+---
+title: "Week3_NYPD_Shooting_Incident_Project"
+author: "D.Schultz"
+date: "5/4/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### **1. Summary**
+
+The primary question analyzed in this report was: **Has the annual number of New York City shooting incidents changed over time?**
+
+* In short, annual shooting incidents were on a declining trend from 2006.  However, incidents increased sharply in 2020.
+    + Additional analysis was performed in an attempt to isolate the 2020 increase.  Isolation was not achieved.
+    + News media was also reviewed.  The media reported the 2020 increase was due to a variety of economic, social and legal factors.
+    + Consequently, there is no evidence to support the 2020 increase was a one-time event.  As such, 2020 data was included in modeling.
+
+* A linear model predicted that the number of annual shootings is expected to decrease by -64.8 from one year to the next.
+
+
+The second question analyzed in this report was: **Does the month of the year impact the number of shooting incidents?**
+
+* In short, a linear model predicted that June, July and August are expected to have the highest number of shooting incidents.
+
+
+A note on bias: There was plenty of bias in this report.  The largest source was personal.  The reason for the personal bias was my limited experience in R and analytics.  As such, only simple questions were considered, simple analysis performed and simple observations made.
+
+
+#### **2. Load packages**
+
+* tidyverse for wrangling and analysis
+* ggplot2 for graphics
+* dplyr for analysis
+* ggplot2 and dplyr are part of tidyverse
+
+```{r packages, echo=FALSE}
+library(tidyverse)
+
+```
+
+
+#### **3. Import data**
+
+* A data file on historic New York City shootings was used throughout this analysis.
+* The data file is a csv located at the url: https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD
+* A dataframe named 'nypd' was created from the csv.
+
+```{r import_data, echo=TRUE}
+nypd <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+
+```
+
+#### **4. Context, description of the data obtained from the source website**
+
+The data file is a: 
+
+* List of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year, 2020.
+* Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence.
+* Information related to suspect and victim demographics is also included.
+
+Description of the data set:
+
+* Shooting data is a dataframe with 23,568 rows and 19 columns.  Each row is a shooting incident.  Each column is a variable.
+* Columns with variable description:
+    + 1.Incident_Key: unique identifier
+    + 2,3. Occur_Date and Occur_time: exact date and time of shooting incident
+    + 4.Boro: borough where shooting occurred
+    + 5,6. Precinct, Jurisdiction_Code: precint and jurisdiction where the shooting occurred.
+    + 7.Location_Desc: location of shooting incident
+    + 8.Statistical_Murder_Flag: did shooting result in death (true or false)
+    + 9,10,11. Perp_Age_Group, Perp_Sex, Perp_Race: Perpetrator age, sex, race
+    + 12,13,14. Vic_Age_Group, Vic_Sex, Vic_Race: Victim age, sex, race
+    + 15,16. X_COORD_CD, Y_COORD_CD: NYC location coordinates
+    + 17,18,19: Latitude, Longitude, Lon_Lat
+    
+
+#### **5. Clean the data file for analysis**
+
+As noted, the key question for analysis is: have the number of annual NYC shooting incidents changed over time.
+
+
+**Step 1:** Drop unnecessary columns
+
+* Keep columns: Incident_Key, Occur_Date, BORO
+* Drop columns: Drop all other columns
+
+```{r drop_columns, echo=TRUE}
+nypd <- nypd %>% select(INCIDENT_KEY, OCCUR_DATE, BORO)
+```
+
+
+**Step 2:** Change Occur_Date from 'chr' to 'date' data type
+
+```{r date_type, echo=TRUE}
+library(lubridate)
+nypd <- nypd %>% mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+```
+
+
+**Step 3** Create year and month columns to make summarization of data over time easier
+
+* Step 1: Create 3 date columns with: 1.year and month  2.year only  3.month only
+* Step 2: Convert year and month from character to date data type
+
+```{r date_transformations, echo=TRUE}
+nypd$year_month <- format(as.Date(nypd$OCCUR_DATE), "%Y-%m")
+
+nypd$year <- year(nypd$OCCUR_DATE)
+nypd$month <- month(nypd$OCCUR_DATE)
+```
+
+```{r date_t, echo=TRUE}
+nypd <- nypd %>% mutate(year_month = ym(year_month))
+```
+
+
+**Step 4:** Missing data
+
+* Two checks were performed to identify missing data.  Checks are in the code chunks below.
+* Conclusion: No missing data noted.  No further action required.
+
+* Check 1: Sum of any missing records
+``` {r missing_data, echo=TRUE}
+sum(is.na(nypd))
+
+```
+* Check 2: Summary of nypd dataframe
+```{r missing_data1, echo=TRUE}
+summary(nypd)
+
+```
+
+
+**Step 5:** BORO (borough) examination
+
+* New York City has 5 boroughs: Bronx, Brooklyn, Manhattan, Queens and Staten Island
+    + Noted 5 expected borough names in the data frame
+    + Conclusion: no issues noted
+
+* Checked borough shooting incident counts for reasonableness
+    + All 5 boroughs have incidents, appears reasonable
+    + Staten Island has much fewer shooting incidents.  Staten Island population is 500K.  Range of other 4 boroughs is 1.5M to 2.7M.
+    + Conclusion: no issues noted
+
+```{r boroughs, echo=TRUE}
+unique(nypd$BORO)
+
+nypd %>% group_by(BORO) %>% summarise(n())
+
+```
+
+
+**Step 6:** Unique days per year examination
+
+* Check number of unique shooting days per year for reasonableness.  Noted range of 308 to 356.
+    + Unique shooting days per year looks reasonable.  No further action required.
+
+```{r unique_days, echo=TRUE}
+nypd %>% select(year, OCCUR_DATE) %>% group_by(year) %>% distinct(OCCUR_DATE) %>% summarise(days=n())
+```
+
+
+#### **6. Summary of the cleaned data set for analysis**
+
+* Data frame for analysis contains 6 columns:
+    + Incident_Key: unique incident identifier | data type is numeric
+    + Occur_Date: date of incident | data type is date
+    + Boro: Borough of incident | data type is character
+    + year_month: year and month of shooting incident | date type is date
+    + year: year of shooting incident | data type is numeric
+    + month: month of shooting incident | data type is numeric
+
+* Number of rows, 23,568: each row is a unique shooting incident
+
+* Date summary
+    + First date: Jan 1, 2006
+    + Last date: Dec 31, 2020
+    + 15 years of complete data
+    + No issues noted
+    
+* Boro summary
+    + All 5 NYC boroughs are included in the data: Bronx, Brooklyn, Manhattan, Staten Island and Queens.
+    + Incident counts by borough:
+        - Bronx: 6,700 / Brooklyn 9,722 / Manhattan 2,921 / Queens 3,527 / Staten Island 698
+        - Low Staten Island count makes sense based on low Staten Island population.
+        - No issues noted
+        
+* Conclusion: data is ready for analysis
+
+```{r summary_prepared_data_set, echo=TRUE}
+summary(nypd)
+```
+```{r str_prepared_data_set, echo=TRUE}
+str(nypd)
+```
+
+#### **7. Analysis, number of shooting incidents over time**
+
+**Step 1:** Summarize incidents by year_month and year
+```{r incidents_boroughs_ym, echo=TRUE}
+nypd_month_totals <- nypd %>% group_by(BORO, year_month) %>% summarise(incident_count=n())
+
+nypd_year_totals <- nypd %>% group_by(BORO, year) %>% summarise(incident_count=n())
+
+nypd_years_only <- nypd_year_totals %>% group_by(year) %>% summarise(total_incidents = sum(incident_count))
+
+```
+
+**Step 2:** Visualize total annual shootings from 2006 to 2020
+
+* Chart 1: Total annual shooting incidents in NYC.  Key Observation: Shooting incidents were on a declining trend since 2006.  However, incidents increased sharply in 2020.
+
+```{r total_incidents_year, echo=TRUE}
+ggplot(data=nypd_years_only, aes(x=year, y=total_incidents)) + geom_point() + geom_line() + ggtitle("1.NYC: annual shooting Incidents") + ylab("total shooting incidents")
+```
+
+**Step 3:** 2020 increase, borough examination
+
+* Charts 2-6: Total annual shooting incidents for each of the 5 NYC boroughs.  Key Observation: In all 5 boroughs shooting incidents were on a declining trend since 2006 but increased in 2020.
+
+```{r total_borough_incidents_year, echo=TRUE}
+nypd_year_totals %>% filter(BORO=='BRONX') %>% ggplot(aes(x=year, y=incident_count)) + geom_point() + geom_line() + ggtitle("2.Bronx: annual shooting incidents") + ylab("total shooting incidents")
+
+nypd_year_totals %>% filter(BORO=='BROOKLYN') %>% ggplot(aes(x=year, y=incident_count)) + geom_point() + geom_line() + ggtitle("3.Brooklyn: annual shooting incidents") + ylab("total shooting incidents")
+
+nypd_year_totals %>% filter(BORO=='MANHATTAN') %>% ggplot(aes(x=year, y=incident_count)) + geom_point() + geom_line() + ggtitle("4.Manhattan: annual shooting incidents") + ylab("total shooting incidents")
+
+nypd_year_totals %>% filter(BORO=='QUEENS') %>% ggplot(aes(x=year, y=incident_count)) + geom_point() + geom_line() + ggtitle("5.Queens: annual shooting incidents") + ylab("total shooting incidents")
+
+nypd_year_totals %>% filter(BORO=='STATEN ISLAND') %>% ggplot(aes(x=year, y=incident_count)) + geom_point() + geom_line() + ggtitle("6.Staten Island: annual shooting incidents") + ylab("total shooting incidents")
+
+```
+
+**Step 4:** 2020 increase: month examination
+
+From chart 1 above, noted total annual NYC shooting incidents were consistent for the three years 2017, 2018 and 2019.  As such the analysis plan is to examine monthly shootings from 2017 through 2019 and compare to the same months in 2020.
+
+* Analysis
+    + Chart 7: Monthly shootings from January 2017 to December 2020.
+    + Chart 8: Monthly Shootings from January 2017 to December 2020 in year over year format.  
+
+* Key observation: Monthly shooting incidents from January 2020 to April 2020 were similar to the same months in prior years (2017, 2018 and 2019).
+    
+* Key observation: Monthly shooting incidents from May 2020 to December 2020 were significantly higher compared to the same months in prior years.
+
+* Conclusion: monthly analysis was not able to isolate the 2020 increase to a very short period, like one month, for further investigation.
+    
+    
+```{r incidents_2017_to_2020, echo=TRUE}
+nypd_ym_17_20 <- nypd_month_totals %>% filter(year_month >= '2017-01-01' & year_month <= '2020-12-01') %>% group_by(year_month) %>% summarise(incidents = sum(incident_count))
+
+ggplot(data=nypd_ym_17_20, aes(x=year_month, y=incidents)) + geom_point() + geom_line() + ggtitle("7. Monthly Shooting Incidents: 2017 - 2020")
+```
+
+```{r year_over_year_comparison, echo=TRUE}
+nypd_ym_17_20$year <- year(nypd_ym_17_20$year_month)
+
+nypd_ym_17_20$month <- month(nypd_ym_17_20$year_month)
+
+nypd_ym_17_20_pivot <- nypd_ym_17_20 %>% pivot_wider(id_cols = -c(year_month), names_from = year, values_from = incidents)
+
+```
+
+```{r year_over_year_view, echo=TRUE}
+colors <- c("2017"="lightblue", "2018"="blue", "2019"="darkblue", "2020"="orange")
+
+ggp1 <- ggplot() +
+  geom_line(data=nypd_ym_17_20_pivot, aes(y=`2017`, x=factor(month), group=1, color="2017")) +
+  geom_line(data=nypd_ym_17_20_pivot, aes(y=`2018`, x=factor(month), group=1, color="2018")) +
+  geom_line(data=nypd_ym_17_20_pivot, aes(y=`2019`, x=factor(month), group=1, color="2019")) +
+  geom_line(data=nypd_ym_17_20_pivot, aes(y=`2020`, x=factor(month), group=1, color="2020")) +
+  labs(title = "8.Monthly Shooting Incidents: 2017 to 2020", y=NULL, x="month", color="Years") +
+  scale_color_manual(values=colors)
+
+ggp1
+```
+
+**Step 5:** 2020 increase, news media
+
+* Read NYC news from 2020 noting plenty of news coverage on the shooting incident increase attributed to many, complex economic, social and legal factors.
+
+
+**Step 6:** 2020 increase, conclusion
+
+* There is no evidence to suggest the 2020 increase was a one time event.  As such, 2020 data will be included in modeling.
+
+
+#### **8. Model 1: impact of time on shooting incidents**
+
+**Step 1:** Key question: what is the impact of time on NYC shooting incidents?
+
+**Step 2:** Create linear model and interpret results
+
+* Key observation: The next year is predicted to have -64.8 fewer shootings than the previous year.
+
+```{r model2, echo=TRUE}
+linear_model_time <- lm(total_incidents ~ year, data = nypd_years_only)
+
+summary(linear_model_time)
+```
+**Step 3: Prediction and Visualization**
+
+* Graph 9 visualizes actual annual shooting incidents vs. prediction.  Again, note the prediction from the linear model is -64.8 fewer shooting incidents compared to the prior year.
+
+```{r model2_predict, echo=TRUE}
+nypd_years_only_pred <- nypd_years_only %>% mutate(pred = predict(linear_model_time))
+```
+
+```{r model2_v, echo=TRUE}
+colors_lm2 <- c("actual"="orange", "predicted"="blue")
+
+g10 <- ggplot() +
+        geom_point(data = nypd_years_only_pred, aes(x=year, y=total_incidents, color="actual"), size=4) +
+        geom_point(data = nypd_years_only_pred, aes(x=year, y=pred, color="predicted"), size=4) +
+        scale_color_manual(values=colors_lm2) +
+        labs(title = "9.Actual vs. Predicted shooting incidents over time", x=NULL, y=NULL, color="color") +
+        theme(axis.text.x = element_text(size=10)) +
+        theme(axis.text.y = element_text(size=10)) +
+        theme(plot.title = element_text(size=14)) +
+        scale_y_continuous(limits = c(min=0, max=2500)) +
+        theme(legend.position = "bottom")
+g10
+```
+
+```{r pred_actual_data, echo=TRUE}
+### actual shootings vs predicted shootings, note -64.8 decrease in predicted shooting incidents from one year to the next
+nypd_years_only_pred
+```
+
+
+#### **9.Model 2: impact of month on shooting incidents**
+
+**Step 1:** Secondary question: From chart 8 above, noted shooting incidents generally peaked in June, July and August in all four years examined (2017-2020).  As such the question for model building was: Does the month of the year impact the number of shooting incidents?
+
+**Step 2:** Create dataframe for the linear model
+
+* Starting dataframe is nypd_month_totals (see section 7 Analysis, step 1 above for background)
+
+* Created a column called 'month' and converted data type to 'factor'
+
+* Created dataframe with exact columns for linear model.  Two columns: incident_count and month.
+    + incident_count is actual monthly shootings by month from 2006 - 2020.
+
+
+```{r linear_model, echo=TRUE}
+nypd_month_totals$month <- month(nypd_month_totals$year_month)
+
+nypd_month_totals$month <- as.factor(nypd_month_totals$month)
+
+nypd_month_totals_df_model <- nypd_month_totals %>% ungroup() %>% select(incident_count, month)
+
+```
+
+**Step 3:** Create Linear Model and interpret model outputs
+
+* Key observation: months 6, 7 and 8 (June, July and August) have the highest number of shooting incidents.
+
+* Interpretation:
+  + Everything else constant, month7 (July) is predicted to have 17.2 more shootings than the reference month of January.
+  + Everything else constant, month8 (August) is predicted to have 16.9 more shootings than the reference month of January.
+  + Everything else constant, month6 (June) is predicted to have 12.7 more shootings than the reference month of January.
+
+```{r linear_model1, echo=TRUE}
+linear_model <- lm(incident_count ~ month, data = nypd_month_totals_df_model)
+summary(linear_model)
+
+```
+
+**Step 4:** Prediction and Visualization
+
+* From the linear model, June, July and August are predicted to have the highest number of shooting incidents.  See data table below.
+
+* Graph 10 visualizes actual monthly shooting incidents vs. prediction.  Again, note June, July and August are predicted to have the highest number of shooting incidents.
+
+
+```{r predict, echo=TRUE}
+nypd_month_predict <- nypd_month_totals_df_model %>% mutate(pred=predict(linear_model))
+
+nypd_month_predict %>% group_by(month) %>% distinct(pred)
+
+```
+
+```{r visualize_pred, echo=TRUE}
+gg2 <- ggplot() +
+    geom_point(data=nypd_month_predict, aes(x=month, y=incident_count), color="lightblue") +
+    geom_point(data=nypd_month_predict, aes(x=month, y=pred), color="red") +
+    labs (title = "10.Monthly Actuals (blue) from 2006-2020 vs. Predicted (red) Shooting Incidents", y="incidents", x="month")
+
+gg2
+```
+
+#### **10.Bias Discussion**
+
+* Bias in the data:
+    + First there is bias based on the data collected.  For example, perpetrator and victim demographic information was collected.  Demographic information will cause users of the data to think of perpetrator and victim demographics.  Demographics may not be an important way to think about shooting incidents.
+    
+    + Second, there is bias based on the data not collected.  There are two kinds.
+        - First, there is missing data, like demographic data.  Missing data is incomplete and, therefore, could lead to incorrect conclusions from users.
+        - Second, there is data that is not collected at all, like the education level of the perpetrator.  Not having more variables to consider, like education level, could lead users to make incorrect conclusions about shooting incidents.  For example, education level not age could be a more useful data point in thinking about ways to reduce shooting incidents.
+        
+
+* Bias in the analysis: The single biggest source of bias in the analysis is what I could do in a reasonable amount of time based on my limited experience in R and analytics.  In order to mitigate this bias I only considered very simple questions, performed simple analysis and made simple observations based on my analysis.
+
+
+#### **11.Conclusion**
+
+The primary question analyzed in this report was: **Has the annual number of New York City shooting incidents changed over time?**
+
+* In short, annual shooting incidents were on a declining trend from 2006.  However, incidents increased sharply in 2020.
+    + Additional analysis was performed in an attempt to isolate the 2020 increase.  Isolation was not achieved.
+    + News media was also reviewed.  The media reported the increase was due to a variety of economic, social and legal factors.
+    + Consequently, there is no evidence to support the 2020 increase was a one-time event.  As such, 2020 data was included in modeling.
+
+* A linear model predicted that the number of annual shootings will decrease by -64.8 from one year to the next.
+
+
+The second question analyzed in this report was: **Does the month of the year impact the number of shooting incidents?**
+
+* In short, a linear model predicted that June, July and August were expected to have the highest number of shooting incidents.
+
+A note on bias: The primary bias of this analysis is personal.  Specifically, my experience in R and analytics is limited.  As a result, I asked simple research questions, performed simple analysis and made simple observations from the analysis.
+
+
+#### **12.Appendix**
+
+Appendix is used for week 5 presentation graphs.  No changes in substance.  Changes in style only for power point presentation purposes.
+
+```{r axis_formatting, echo=FALSE}
+library(scales)
+```
+
+```{r chart1_p, echo=TRUE}
+### Chart 1 from main report above with different styling
+
+gp1 <- ggplot(data=nypd_years_only, aes(x=year, y=total_incidents)) +
+          geom_point(color="black", size=5) + geom_line(color="black") +
+          ggtitle("1.New York City annual shooting Incidents") +
+          ylab("") + xlab("") + xlim(2005,2020) + 
+          scale_y_continuous(labels=comma, limits = c(min=0, max=3000)) +
+          theme(plot.title = element_text(size=25, color="black")) +
+          theme(axis.text.x = element_text(size=18)) +
+          theme(axis.text.y = element_text(size=18)) 
+gp1
+
+
+### Charts 2-6 from main report above with different styling and combined into 1 graph
+
+gp2 <- ggplot(data=nypd_year_totals, aes(x=year, y=incident_count, color=BORO)) + geom_line() + geom_point(size=3) +
+          scale_color_manual("NYC boroughs", values = c("blue","blue4","salmon3","cornflowerblue","salmon")) +
+          theme(legend.position = "bottom") +
+          xlim(2005,2020) + ylim(0,850) + xlab("") + ylab("") +
+          ggtitle("2.Annual shooting incidents by borough") +
+          theme(plot.title = element_text(size=25)) +
+          theme(axis.text.x = element_text(size=18)) +
+          theme(axis.text.y = element_text(size=18))
+gp2
+
+
+
+### Chart 8 from main report above with different styling
+colors_gp8 <- c("2017"="lightblue", "2018"="blue", "2019"="darkblue", "2020"="orange")
+
+gp8 <- ggplot() +
+  geom_line(data=nypd_ym_17_20_pivot, aes(y=`2017`, x=factor(month), group=1, color="2017"), size=2) +
+  geom_line(data=nypd_ym_17_20_pivot, aes(y=`2018`, x=factor(month), group=1, color="2018"), size=2) +
+  geom_line(data=nypd_ym_17_20_pivot, aes(y=`2019`, x=factor(month), group=1, color="2019"), size=2) +
+  geom_line(data=nypd_ym_17_20_pivot, aes(y=`2020`, x=factor(month), group=1, color="2020"), size=2) +
+  labs(title = "3.Monthly Shooting Incidents: 2017 to 2020", y=NULL, x=NULL, color="Years") +
+  scale_color_manual(values=colors_gp8) +
+  theme(axis.text.x = element_text(size=18)) +
+  theme(axis.text.y = element_text(size=18)) +
+  theme(plot.title = element_text(size=25))
+gp8
+
+
+### Chart 10 from main report with different styling
+colors_lm2 <- c("actual"="orange", "predicted"="blue")
+
+g10 <- ggplot() +
+        geom_point(data = nypd_years_only_pred, aes(x=year, y=total_incidents, color="actual"), size=4) +
+        geom_point(data = nypd_years_only_pred, aes(x=year, y=pred, color="predicted"), size=4) +
+        scale_color_manual(values=colors_lm2) +
+        labs(title = "4.Actual vs. Predicted shooting incidents over time", x=NULL, y=NULL, color="color") +
+        theme(axis.text.x = element_text(size=18)) +
+        theme(axis.text.y = element_text(size=18)) +
+        theme(plot.title = element_text(size=25)) +
+        scale_y_continuous(labels=comma, limits = c(min=0, max=3500)) +
+        theme(legend.position = "bottom")
+g10
+```
+
+
+```{r session_info, echo=TRUE}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
